@@ -1,0 +1,9 @@
+{
+  "name":"即時翻譯",
+  "short_name":"即時翻譯",
+  "start_url":"./index.html",
+  "display":"standalone",
+  "background_color":"#f5f7fb",
+  "theme_color":"#1976d2",
+  "lang":"zh-TW"
+}
