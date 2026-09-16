@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1976d2">
+<link rel="manifest" href="manifest.json">
+<title>即時翻譯</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC",sans-serif;background:#f5f7fb;color:#172033}
+header{padding:18px 18px 10px;background:white;position:sticky;top:0;z-index:2;border-bottom:1px solid #e5e7eb}
+h1{font-size:24px;margin:0 0 8px}.status{display:flex;justify-content:space-between;color:#5b6472;font-size:14px}
+main{padding:14px 14px 120px;max-width:760px;margin:auto}
+.card{background:white;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.zh{font-size:19px;line-height:1.5}.en{font-size:18px;line-height:1.5;margin-top:8px;color:#1457a6}
+.listen{width:100%;border:0;border-radius:16px;padding:17px;font-size:18px;background:#1976d2;color:white}
+.listen.on{background:#c62828}.bar{position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid #ddd;padding:12px 14px calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px}
+button.small{flex:1;border:1px solid #ccd2db;background:white;border-radius:12px;padding:12px;font-size:15px}
+.empty{text-align:center;color:#7b8492;padding:40px 10px}
+.note{font-size:13px;color:#6b7280;line-height:1.5;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+<h1>即時翻譯</h1>
+<div class="status"><span id="status">準備開始</span><span id="timer">00:00 / 10:00</span></div>
+</header>
+<main>
+<button id="listen" class="listen">🎙️ 開始說中文</button>
+<div class="note">每次辨識到一句中文後會顯示英文。點擊英文即可朗讀。一次對話最多 10 分鐘。</div>
+<div id="list"><div class="empty">按上面的按鈕開始</div></div>
+</main>
+<div class="bar">
+<button id="pause" class="small">⏸ 暫停</button>
+<button id="stop" class="small">■ 結束</button>
+<button id="clear" class="small">清除</button>
+</div>
+<script>
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition, listening=false, seconds=0, timerId=null, translating=false;
+const list=document.querySelector('#list'), statusEl=document.querySelector('#status');
+const timerEl=document.querySelector('#timer'), listenBtn=document.querySelector('#listen');
+
+function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function timerStart(){if(timerId)return;timerId=setInterval(()=>{seconds++;timerEl.textContent=fmt(seconds)+' / 10:00';if(seconds>=600) stop()},1000)}
+function addCard(zh,en){
+ if(list.querySelector('.empty')) list.innerHTML='';
+ const c=document.createElement('div'); c.className='card';
+ c.innerHTML='<div class="zh"></div><div class="en">🔊 <span></span></div>';
+ c.querySelector('.zh').textContent=zh;c.querySelector('.en span').textContent=en;
+ c.querySelector('.en').onclick=()=>speechSynthesis.speak(new SpeechSynthesisUtterance(en));
+ list.prepend(c);
+}
+async function translate(zh){
+ translating=true; statusEl.textContent='翻譯中…';
+ try{
+  const u='https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-TW&tl=en&dt=t&q='+encodeURIComponent(zh);
+  const r=await fetch(u); const d=await r.json();
+  return d[0].map(x=>x[0]||'').join('');
+ }catch(e){return '翻譯失敗，請檢查網路連線'}
+ finally{translating=false;statusEl.textContent=listening?'正在聆聽中文…':'已暫停'}
+}
+function setup(){
+ if(!SpeechRecognition){
+  statusEl.textContent='此 Safari 不支援網頁語音辨識';
+  listenBtn.textContent='請改用支援語音辨識的瀏覽器';
+  return false;
+ }
+ recognition=new SpeechRecognition();
+ recognition.lang='zh-TW'; recognition.continuous=true; recognition.interimResults=true;
+ recognition.onstart=()=>{listening=true;timerStart();listenBtn.classList.add('on');listenBtn.textContent='🔴 正在聆聽…';statusEl.textContent='正在聆聽中文…'};
+ recognition.onresult=async e=>{
+   for(let i=e.resultIndex;i<e.results.length;i++){
+    if(e.results[i].isFinal){
+      const zh=e.results[i][0].transcript.trim();
+      if(zh){const en=await translate(zh);addCard(zh,en)}
+    }
+   }
+ };
+ recognition.onerror=()=>{statusEl.textContent='語音辨識發生問題，請再試一次'};
+ recognition.onend=()=>{if(listening && seconds<600){try{recognition.start()}catch(_){}}else{listening=false;listenBtn.classList.remove('on');listenBtn.textContent='🎙️ 開始說中文'}};
+ return true;
+}
+setup();
+listenBtn.onclick=()=>{if(seconds>=600)return; if(!recognition&& !setup())return; if(listening){recognition.stop();return} try{recognition.start()}catch(_){}};
+document.querySelector('#pause').onclick=()=>{listening=false;if(recognition)recognition.stop();statusEl.textContent='已暫停';listenBtn.classList.remove('on');listenBtn.textContent='🎙️ 繼續說中文'};
+document.querySelector('#stop').onclick=()=>stop();
+function stop(){listening=false;if(recognition)recognition.stop();if(timerId){clearInterval(timerId);timerId=null}statusEl.textContent=seconds>=600?'已達 10 分鐘':'已結束';listenBtn.classList.remove('on');listenBtn.textContent='🎙️ 新對話'}
+document.querySelector('#clear').onclick=()=>{list.innerHTML='<div class="empty">按上面的按鈕開始</div>';seconds=0;timerEl.textContent='00:00 / 10:00';stop();seconds=0;timerEl.textContent='00:00 / 10:00';statusEl.textContent='準備開始'};
+</script>
+</body>
+</html>
